@@ -1,0 +1,219 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"></head>
+<body>
+<!--
+  Phyzify canvas-generator — Mountain Landscape (ADR-023)
+  Draws layered silhouetted ridgelines against a sky gradient using
+  seeded value-noise fBm for natural, deterministic mountain profiles.
+-->
+<canvas id="art"></canvas>
+<script>
+  // ── 1. Manifest ─────────────────────────────────────────────────────────────
+  window.__MANIFEST__ = {
+    name: 'Mountain Landscape',
+    params: [
+      { key: 'peakCount',   label: 'Peak Count',   type: 'range', min: 2,   max: 12,     step: 1,    default: 5   },
+      { key: 'layerCount',  label: 'Layer Count',  type: 'range', min: 2,   max: 8,      step: 1,    default: 4   },
+      { key: 'roughness',   label: 'Roughness',    type: 'range', min: 0.1, max: 1.0,    step: 0.05, default: 0.5 },
+      { key: 'skyHue',      label: 'Sky Hue',      type: 'range', min: 0,   max: 360,    step: 1,    default: 210 },
+      { key: 'mountainHue', label: 'Mountain Hue', type: 'range', min: 0,   max: 360,    step: 1,    default: 200 },
+      { key: 'seed',        label: 'Seed',         type: 'range', min: 0,   max: 999999, step: 1,    default: 42  },
+    ],
+  };
+
+  // ── 2. Host-injected context ─────────────────────────────────────────────────
+  var blueprint = window.__BLUEPRINT__ || {};
+  var WIDTH  = blueprint.width  || 800;
+  var HEIGHT = blueprint.height || 600;
+
+  var canvas = document.getElementById('art');
+  canvas.width  = WIDTH;
+  canvas.height = HEIGHT;
+
+  // ── 3. Seeded RNG (mulberry32) ────────────────────────────────────────────────
+  function hashSeed(s) {
+    var h = 2166136261 >>> 0;
+    var str = String(s == null ? 'phyzify' : s);
+    for (var i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619) >>> 0;
+    }
+    return h >>> 0;
+  }
+
+  function mulberry32(seed) {
+    var a = seed >>> 0;
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // ── 4. Value-noise helper ─────────────────────────────────────────────────────
+  // Build a smooth noise function over [0,1] from latticeSize random points.
+  function buildNoise(rng, latticeSize) {
+    var arr = new Array(latticeSize + 2);
+    for (var i = 0; i <= latticeSize; i++) arr[i] = rng() * 2 - 1;
+    arr[latticeSize + 1] = arr[0]; // wrap
+    return function sampleNoise(t) {
+      var scaled = ((t % 1) + 1) % 1 * latticeSize;
+      var i0 = Math.floor(scaled) | 0;
+      var i1 = i0 + 1;
+      var f  = scaled - i0;
+      var sf = f * f * (3 - 2 * f); // smoothstep
+      return arr[i0] * (1 - sf) + arr[i1] * sf;
+    };
+  }
+
+  // Fractional Brownian Motion: sum octaves at increasing frequencies.
+  function fbm(noises, t, octaves, persistence) {
+    var val = 0, amp = 1, maxAmp = 0;
+    for (var o = 0; o < octaves; o++) {
+      val    += noises[o](t * Math.pow(2, o)) * amp;
+      maxAmp += amp;
+      amp    *= persistence;
+    }
+    return val / maxAmp; // normalised to roughly [-1, 1]
+  }
+
+  // ── 5. Ridgeline builder ──────────────────────────────────────────────────────
+  function buildRidgeline(rng, W, H, layerIdx, layerCount, peakCount, roughness) {
+    var OCTAVES    = 4;
+    var NOISE_SIZE = 32;
+    var SAMPLES    = 500;
+
+    // Per-layer noise tables
+    var noises = [];
+    for (var o = 0; o < OCTAVES; o++) {
+      noises.push(buildNoise(rng, NOISE_SIZE));
+    }
+
+    // Peak positions and heights (normalised x in [0,1], h in [0,1])
+    var peaks = [];
+    for (var i = 0; i < peakCount; i++) {
+      var xBase   = (i + 0.5) / peakCount;
+      var xJitter = (rng() - 0.5) * 0.7 / peakCount;
+      peaks.push({ x: xBase + xJitter, h: 0.35 + rng() * 0.65 });
+    }
+
+    // t=0: back layer, t=1: front layer
+    var t      = layerIdx / Math.max(layerCount - 1, 1);
+    var baseY  = H * (0.38 + t * 0.36);
+    var ampMax = H * (0.38 - t * 0.10);
+    var sigma  = 0.06 + 0.04 / Math.max(peakCount, 1);
+
+    var pts = [{ x: -2, y: baseY }];
+    for (var si = 0; si <= SAMPLES; si++) {
+      var u = si / SAMPLES;
+      var x = u * W;
+
+      // Gaussian-peak envelope
+      var envelope = 0;
+      for (var pi = 0; pi < peaks.length; pi++) {
+        var dx = u - peaks[pi].x;
+        envelope += peaks[pi].h * Math.exp(-(dx * dx) / (2 * sigma * sigma));
+      }
+      envelope = Math.min(1, envelope);
+
+      // fBm noise gated by envelope so flat valleys stay flat
+      var noise    = fbm(noises, u, OCTAVES, roughness);
+      var noiseAmt = roughness * 0.35 * envelope;
+      var h        = Math.max(0, envelope + noise * noiseAmt);
+
+      pts.push({ x: x, y: baseY - h * ampMax });
+    }
+    pts.push({ x: W + 2, y: baseY });
+    return pts;
+  }
+
+  // ── 6. Draw function ──────────────────────────────────────────────────────────
+  // Signature is __draw__(params) for the host; also handles __draw__(canvas, params, seed).
+  window.__draw__ = function (canvasOrParams, paramsArg, seedArg) {
+    var activeCanvas, p, explicitSeed;
+    if (canvasOrParams instanceof HTMLCanvasElement) {
+      activeCanvas = canvasOrParams;
+      p            = paramsArg || {};
+      explicitSeed = seedArg;
+    } else {
+      activeCanvas = canvas;
+      p            = canvasOrParams || {};
+      explicitSeed = paramsArg;
+    }
+
+    var peakCount   = p.peakCount   != null ? p.peakCount   : 5;
+    var layerCount  = p.layerCount  != null ? p.layerCount  : 4;
+    var roughness   = p.roughness   != null ? p.roughness   : 0.5;
+    var skyHue      = p.skyHue      != null ? p.skyHue      : 210;
+    var mountainHue = p.mountainHue != null ? p.mountainHue : 200;
+    var paramSeed   = p.seed        != null ? p.seed        : null;
+    var finalSeed   = paramSeed     != null ? paramSeed
+                    : explicitSeed  != null ? explicitSeed
+                    : window.__SEED__ != null ? window.__SEED__
+                    : 42;
+
+    var ctx = activeCanvas.getContext('2d');
+    var W   = activeCanvas.width  || 800;
+    var H   = activeCanvas.height || 600;
+
+    // Re-seed at the top of every draw so output is purely (seed, params) -> pixels.
+    var rng = mulberry32(hashSeed(finalSeed));
+
+    // — Sky gradient ————————————————————————————————————————————————————————
+    var skyGrad = ctx.createLinearGradient(0, 0, 0, H);
+    skyGrad.addColorStop(0,   'hsl(' + skyHue + ', 55%, 82%)');
+    skyGrad.addColorStop(0.5, 'hsl(' + skyHue + ', 65%, 55%)');
+    skyGrad.addColorStop(1,   'hsl(' + skyHue + ', 80%, 28%)');
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(0, 0, W, H);
+
+    // — Mountain layers, back to front ————————————————————————————————————————
+    for (var layer = 0; layer < layerCount; layer++) {
+      var t = layer / Math.max(layerCount - 1, 1); // 0=back, 1=front
+
+      // Atmospheric perspective: back=light/desaturated, front=dark/saturated
+      var lightness  = Math.round(62 - t * 38);   // 62 % → 24 %
+      var saturation = Math.round(18 + t * 55);   // 18 % → 73 %
+      var hueShift   = (mountainHue + layer * 10) % 360;
+      var alpha      = 0.80 + t * 0.20;           // 0.80 → 1.00
+
+      var pts = buildRidgeline(rng, W, H, layer, layerCount, peakCount, roughness);
+
+      // Catmull-Rom spline through the dense point cloud
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+
+      for (var i = 1; i < pts.length - 2; i++) {
+        var p0 = pts[Math.max(i - 1, 0)];
+        var p1 = pts[i];
+        var p2 = pts[i + 1];
+        var p3 = pts[Math.min(i + 2, pts.length - 1)];
+
+        var cp1x = p1.x + (p2.x - p0.x) / 6;
+        var cp1y = p1.y + (p2.y - p0.y) / 6;
+        var cp2x = p2.x - (p3.x - p1.x) / 6;
+        var cp2y = p2.y - (p3.y - p1.y) / 6;
+
+        ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+      }
+      ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+
+      // Close silhouette polygon at the bottom of the canvas
+      ctx.lineTo(W + 2, H + 2);
+      ctx.lineTo(-2,    H + 2);
+      ctx.closePath();
+
+      ctx.fillStyle = 'hsla(' + hueShift + ', ' + saturation + '%, ' + lightness + '%, ' + alpha + ')';
+      ctx.fill();
+    }
+  };
+
+  // ── 7. Initial render ─────────────────────────────────────────────────────────
+  var defaults = {};
+  window.__MANIFEST__.params.forEach(function (d) { defaults[d.key] = d.default; });
+  window.__draw__(Object.assign(defaults, window.__PARAMS__ || {}));
+</script>
+</body>
+</html>
