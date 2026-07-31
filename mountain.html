@@ -179,7 +179,8 @@
       var hueShift   = (mountainHue + layer * 10) % 360;
       var alpha      = 0.80 + t * 0.20;           // 0.80 → 1.00
 
-      var pts = buildRidgeline(rng, W, H, layer, layerCount, peakCount, roughness);
+      var layerRoughness = roughness * (1 - t * 0.7);
+      var pts = buildRidgeline(rng, W, H, layer, layerCount, peakCount, layerRoughness);
 
       // Catmull-Rom spline through the dense point cloud
       ctx.beginPath();
