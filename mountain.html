@@ -18,6 +18,7 @@
       { key: 'roughness',   label: 'Roughness',    type: 'range', min: 0.1, max: 1.0,    step: 0.05, default: 0.5 },
       { key: 'skyHue',      label: 'Sky Hue',      type: 'range', min: 0,   max: 360,    step: 1,    default: 210 },
       { key: 'mountainHue', label: 'Mountain Hue', type: 'range', min: 0,   max: 360,    step: 1,    default: 200 },
+      { key: 'parallax',    label: 'Parallax',     type: 'range', min: 0,   max: 100,    step: 1,    default: 50  },
       { key: 'seed',        label: 'Seed',         type: 'range', min: 0,   max: 999999, step: 1,    default: 42  },
     ],
   };
@@ -80,10 +81,12 @@
   }
 
   // ── 5. Ridgeline builder ──────────────────────────────────────────────────────
+  // Generates points from x = -W to x = 2W (triple-width coverage) so that
+  // parallax translation never exposes a gap at either canvas edge.
   function buildRidgeline(rng, W, H, layerIdx, layerCount, peakCount, roughness) {
     var OCTAVES    = 4;
     var NOISE_SIZE = 32;
-    var SAMPLES    = 500;
+    var SAMPLES    = 1500; // triple width (-W to 2W) at same point density
 
     // Per-layer noise tables
     var noises = [];
@@ -105,10 +108,12 @@
     var ampMax = H * (0.38 - t * 0.10);
     var sigma  = 0.06 + 0.04 / Math.max(peakCount, 1);
 
-    var pts = [{ x: -2, y: baseY }];
+    // Guard point at far left (-W)
+    var pts = [{ x: -W - 2, y: baseY }];
     for (var si = 0; si <= SAMPLES; si++) {
-      var u = si / SAMPLES;
-      var x = u * W;
+      var norm = si / SAMPLES;   // [0, 1]
+      var u    = norm * 3 - 1;   // [-1, 2]
+      var x    = u * W;          // [-W, 2W]
 
       // Gaussian-peak envelope
       var envelope = 0;
@@ -125,7 +130,8 @@
 
       pts.push({ x: x, y: baseY - h * ampMax });
     }
-    pts.push({ x: W + 2, y: baseY });
+    // Guard point at far right (2W)
+    pts.push({ x: 2 * W + 2, y: baseY });
     return pts;
   }
 
@@ -148,6 +154,7 @@
     var roughness   = p.roughness   != null ? p.roughness   : 0.5;
     var skyHue      = p.skyHue      != null ? p.skyHue      : 210;
     var mountainHue = p.mountainHue != null ? p.mountainHue : 200;
+    var parallax    = p.parallax    != null ? p.parallax    : 50;
     var paramSeed   = p.seed        != null ? p.seed        : null;
     var finalSeed   = paramSeed     != null ? paramSeed
                     : explicitSeed  != null ? explicitSeed
@@ -174,13 +181,19 @@
       var t = layer / Math.max(layerCount - 1, 1); // 0=back, 1=front
 
       // Atmospheric perspective: back=light/desaturated, front=dark/saturated
-      var lightness  = Math.round(62 - t * 38);   // 62 % → 24 %
-      var saturation = Math.round(18 + t * 55);   // 18 % → 73 %
+      var lightness  = Math.round(62 - t * 38);   // 62 % -> 24 %
+      var saturation = Math.round(18 + t * 55);   // 18 % -> 73 %
       var hueShift   = (mountainHue + layer * 10) % 360;
-      var alpha      = 0.80 + t * 0.20;           // 0.80 → 1.00
+      var alpha      = 0.80 + t * 0.20;           // 0.80 -> 1.00
 
       var layerRoughness = roughness * (0.3 + t * 0.7);
       var pts = buildRidgeline(rng, W, H, layer, layerCount, peakCount, layerRoughness);
+
+      // Parallax: back layers barely move, front layers shift the most.
+      var layerOffset = (parallax / 100) * (layer / Math.max(layerCount - 1, 1)) * W * 0.15;
+
+      ctx.save();
+      ctx.translate(-layerOffset, 0);
 
       // Catmull-Rom spline through the dense point cloud
       ctx.beginPath();
@@ -201,14 +214,73 @@
       }
       ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
 
-      // Close silhouette polygon at the bottom of the canvas
-      ctx.lineTo(W + 2, H + 2);
-      ctx.lineTo(-2,    H + 2);
+      // Close silhouette polygon at the bottom (extended to triple-width coverage)
+      ctx.lineTo(2 * W + 2, H + 2);
+      ctx.lineTo(-W - 2,    H + 2);
       ctx.closePath();
 
       ctx.fillStyle = 'hsla(' + hueShift + ', ' + saturation + '%, ' + lightness + '%, ' + alpha + ')';
       ctx.fill();
+
+      ctx.restore();
     }
+
+    // — Foreground tree silhouette ————————————————————————————————————————————
+    // Drawn after all mountain layers so trees sit in front.
+    // Colour: very dark version of mountainHue (~15 % lightness, 60 % saturation),
+    // distinctly darker than the frontmost mountain layer (~24 % lightness).
+    var treeColor  = 'hsl(' + mountainHue + ', 60%, 15%)';
+    // Trees slide in the opposite direction to mountains for a stronger near-object feel.
+    var treeOffset = (parallax / 100) * W * 0.20;
+
+    // Trees are generated across -W to 2W (triple width) for full parallax coverage.
+    var treeSpan     = 3 * W;
+    var approxSpacing = 40 + rng() * 20; // one tree roughly every 40-60 px
+    var treeCount    = Math.ceil(treeSpan / approxSpacing);
+
+    ctx.save();
+    ctx.translate(treeOffset, 0);
+    ctx.fillStyle = treeColor;
+
+    for (var ti = 0; ti < treeCount; ti++) {
+      // Evenly-spaced base position across [-W, 2W] with rng jitter
+      var tx    = -W + (ti + 0.5) * (treeSpan / treeCount) + (rng() - 0.5) * approxSpacing * 0.8;
+      var treeH = H * (0.10 + rng() * 0.12); // 10-22 % of H
+      var tiers = rng() < 0.4 ? 3 : 2;       // 2 or 3 tiers
+
+      var trunkH = treeH * 0.18;
+      var trunkW = Math.max(2, treeH * 0.08);
+      var coneH  = treeH - trunkH;
+
+      // Tier definitions as fractions of coneH from the cone top:
+      //   [apexFrac, baseFrac, halfWidthFrac]
+      var tierDefs = tiers === 3
+        ? [[0.00, 0.42, 0.18], [0.20, 0.70, 0.30], [0.45, 1.00, 0.42]]
+        : [[0.00, 0.55, 0.22], [0.25, 1.00, 0.38]];
+
+      var coneTopY = H - treeH; // y-coordinate of the cone apex
+
+      ctx.beginPath();
+
+      // Triangle tiers, drawn top to bottom
+      for (var td = 0; td < tierDefs.length; td++) {
+        var def = tierDefs[td];
+        var aY  = coneTopY + def[0] * coneH;
+        var bY  = coneTopY + def[1] * coneH;
+        var hw  = def[2] * coneH;
+        ctx.moveTo(tx, aY);
+        ctx.lineTo(tx - hw, bY);
+        ctx.lineTo(tx + hw, bY);
+        ctx.closePath();
+      }
+
+      // Narrow trunk rectangle at the very bottom
+      ctx.rect(tx - trunkW / 2, H - trunkH, trunkW, trunkH);
+
+      ctx.fill();
+    }
+
+    ctx.restore();
   };
 
   // ── 7. Initial render ─────────────────────────────────────────────────────────
