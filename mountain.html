@@ -227,26 +227,31 @@
 
     // — Foreground tree silhouette ————————————————————————————————————————————
     // Drawn after all mountain layers so trees sit in front.
-    // Colour: very dark version of mountainHue (~15 % lightness, 60 % saturation),
-    // distinctly darker than the frontmost mountain layer (~24 % lightness).
-    var treeColor  = 'hsl(' + mountainHue + ', 60%, 15%)';
+    // Dense spacing (≈10–18 px centre-to-centre) so the treeline reads as a solid
+    // dark mass.  Each tree gets a slightly randomised lightness (10–20 %) and
+    // saturation (55–70 %) via rng() for a natural mottled canopy while keeping
+    // the overall dark green/blue-green tone of mountainHue.
     // Trees slide in the opposite direction to mountains for a stronger near-object feel.
     var treeOffset = (parallax / 100) * W * 0.20;
 
     // Trees are generated across -W to 2W (triple width) for full parallax coverage.
-    var treeSpan     = 3 * W;
-    var approxSpacing = 40 + rng() * 20; // one tree roughly every 40-60 px
-    var treeCount    = Math.ceil(treeSpan / approxSpacing);
+    var treeSpan      = 3 * W;
+    var approxSpacing = 10 + rng() * 8; // one tree roughly every 10–18 px
+    var treeCount     = Math.ceil(treeSpan / approxSpacing);
 
     ctx.save();
     ctx.translate(treeOffset, 0);
-    ctx.fillStyle = treeColor;
 
     for (var ti = 0; ti < treeCount; ti++) {
       // Evenly-spaced base position across [-W, 2W] with rng jitter
       var tx    = -W + (ti + 0.5) * (treeSpan / treeCount) + (rng() - 0.5) * approxSpacing * 0.8;
       var treeH = H * (0.10 + rng() * 0.12); // 10-22 % of H
       var tiers = rng() < 0.4 ? 3 : 2;       // 2 or 3 tiers
+
+      // Per-tree randomised lightness and saturation for a mottled canopy
+      var treeLightness  = 10 + rng() * 10;  // 10–20 %
+      var treeSaturation = 55 + rng() * 15;  // 55–70 %
+      var treeColor = 'hsl(' + mountainHue + ', ' + Math.round(treeSaturation) + '%, ' + Math.round(treeLightness) + '%)';
 
       var trunkH = treeH * 0.18;
       var trunkW = Math.max(2, treeH * 0.08);
@@ -277,6 +282,7 @@
       // Narrow trunk rectangle at the very bottom
       ctx.rect(tx - trunkW / 2, H - trunkH, trunkW, trunkH);
 
+      ctx.fillStyle = treeColor;
       ctx.fill();
     }
 
