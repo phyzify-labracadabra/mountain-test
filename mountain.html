@@ -237,14 +237,14 @@
     // Saturation (55–70 %) and tier count (2 or 3) remain randomised per tree.
     // Trees span -W to 2W for full triple-width coverage.
 
-    var treeSpan      = 4 * W;
+    var treeSpan      = 5 * W;
     var approxSpacing = 5; // one tree roughly every 5 px (dense foreground coverage)
     var treeCount     = Math.ceil(Math.ceil(treeSpan / 5) * 2.2);
 
     // ── Generate all trees ───────────────────────────────────────────────────────
     var trees = [];
     for (var ti = 0; ti < treeCount; ti++) {
-      var tx    = -1.5 * W + (ti + 0.5) * (treeSpan / treeCount) + (rng() - 0.5) * approxSpacing * 0.8;
+      var tx    = -2 * W + (ti + 0.5) * (treeSpan / treeCount) + (rng() - 0.5) * approxSpacing * 0.8;
       var depth = Math.pow(rng(), 0.25);                   // [0, 1], front-heavy power curve
       var heightScale   = 1.0 - depth * 0.50;             // back=100%, front=50%
       var treeH = H * (0.10 + rng() * 0.12) * heightScale;
@@ -263,9 +263,6 @@
     trees.sort(function (a, b) { return a.depth - b.depth; });
 
     // ── Draw back to front ───────────────────────────────────────────────────────
-    var parallaxTreeOffset = (parallax / 100) * W * 0.08;
-    ctx.save();
-    ctx.translate(-parallaxTreeOffset, 0);
     for (var ti = 0; ti < trees.length; ti++) {
       var tree = trees[ti];
       var tx             = tree.tx;
@@ -274,6 +271,11 @@
       var treeLightness  = tree.treeLightness;
       var treeSaturation = tree.treeSaturation;
       var baseline       = tree.baseline;
+
+      // Per-tree parallax: front trees (depth≈1) shift ~0.28*W; back trees barely move.
+      var treeShift = (parallax / 100) * tree.depth * W * 0.28;
+      ctx.save();
+      ctx.translate(-treeShift, 0);
 
       var treeColor = 'hsl(' + mountainHue + ', ' + Math.round(treeSaturation) + '%, ' + Math.round(treeLightness) + '%)';
 
@@ -309,8 +311,8 @@
 
       ctx.fillStyle = treeColor;
       ctx.fill();
+      ctx.restore();
     }
-    ctx.restore();
 
     // Seal the bottom strip so no sky pixels peek through tree gaps at the canvas edge
     ctx.fillStyle = 'hsl(' + mountainHue + ', 62%, 14%)';
