@@ -247,7 +247,7 @@
       var tx    = -2 * W + (ti + 0.5) * (treeSpan / treeCount) + (rng() - 0.5) * approxSpacing * 0.8;
       var depth = Math.pow(rng(), 0.25);                   // [0, 1], front-heavy power curve
       var heightScale   = 1.0 - depth * 0.50;             // back=100%, front=50%
-      var treeH = H * (0.10 + rng() * 0.12) * heightScale;
+      var treeH = H * (0.10 + rng() * 0.04) * heightScale;
       var tiers = rng() < 0.4 ? 3 : 2;
       var treeLightness  = 8 + depth * 6 + (rng() - 0.5) * 4; // back: ~8%, front: ~14%
       var treeSaturation = 55 + rng() * 15;               // 55–70 %
