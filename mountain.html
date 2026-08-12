@@ -226,67 +226,77 @@
     }
 
     // — Foreground tree silhouette ————————————————————————————————————————————
-    // Drawn after all mountain layers so trees sit in front.
-    // Dense spacing (≈10–18 px centre-to-centre) so the treeline reads as a solid
-    // dark mass.  Each tree gets a slightly randomised lightness (10–20 %) and
-    // saturation (55–70 %) via rng() for a natural mottled canopy while keeping
-    // the overall dark green/blue-green tone of mountainHue.
-    // Trees slide in the opposite direction to mountains for a stronger near-object feel.
-    var treeOffset = (parallax / 100) * W * 0.20;
+    // Two rows of conifer silhouettes drawn after all mountain layers.
+    // Back row baseline ≈ H*0.87, front row baseline = H (canvas bottom).
+    // The cone bottom sits AT the row baseline so the trunk hangs below —
+    // clipped off-canvas for the front row, hidden by front-row foliage for
+    // the back row — meaning only conical foliage is visible.
+    // Back row trees are 80 % the height of front-row trees.
+    // Per-tree lightness is 12–17 % for a subtler mottled canopy.
+    // No parallax translation: depth is conveyed by the two rows themselves.
+    // All back-row trees are generated first for deterministic RNG ordering.
 
-    // Trees are generated across -W to 2W (triple width) for full parallax coverage.
+    // Trees are generated across -W to 2W (triple width) for full coverage.
     var treeSpan      = 3 * W;
     var approxSpacing = 10 + rng() * 8; // one tree roughly every 10–18 px
     var treeCount     = Math.ceil(treeSpan / approxSpacing);
 
-    ctx.save();
-    ctx.translate(treeOffset, 0);
+    // Row definitions: back row first, then front row.
+    var treeRows = [
+      { baseline: H * 0.87, heightScale: 0.80 },
+      { baseline: H,        heightScale: 1.00 },
+    ];
 
-    for (var ti = 0; ti < treeCount; ti++) {
-      // Evenly-spaced base position across [-W, 2W] with rng jitter
-      var tx    = -W + (ti + 0.5) * (treeSpan / treeCount) + (rng() - 0.5) * approxSpacing * 0.8;
-      var treeH = H * (0.10 + rng() * 0.12); // 10-22 % of H
-      var tiers = rng() < 0.4 ? 3 : 2;       // 2 or 3 tiers
+    for (var ri = 0; ri < treeRows.length; ri++) {
+      var rowBaseline    = treeRows[ri].baseline;
+      var rowHeightScale = treeRows[ri].heightScale;
 
-      // Per-tree randomised lightness and saturation for a mottled canopy
-      var treeLightness  = 10 + rng() * 10;  // 10–20 %
-      var treeSaturation = 55 + rng() * 15;  // 55–70 %
-      var treeColor = 'hsl(' + mountainHue + ', ' + Math.round(treeSaturation) + '%, ' + Math.round(treeLightness) + '%)';
+      for (var ti = 0; ti < treeCount; ti++) {
+        // Evenly-spaced base position across [-W, 2W] with rng jitter
+        var tx    = -W + (ti + 0.5) * (treeSpan / treeCount) + (rng() - 0.5) * approxSpacing * 0.8;
+        var treeH = H * (0.10 + rng() * 0.12) * rowHeightScale;
+        var tiers = rng() < 0.4 ? 3 : 2;       // 2 or 3 tiers
 
-      var trunkH = treeH * 0.18;
-      var trunkW = Math.max(2, treeH * 0.08);
-      var coneH  = treeH - trunkH;
+        // Per-tree randomised lightness (12–17 %) and saturation (55–70 %)
+        var treeLightness  = 12 + rng() * 5;   // 12–17 %
+        var treeSaturation = 55 + rng() * 15;  // 55–70 %
+        var treeColor = 'hsl(' + mountainHue + ', ' + Math.round(treeSaturation) + '%, ' + Math.round(treeLightness) + '%)';
 
-      // Tier definitions as fractions of coneH from the cone top:
-      //   [apexFrac, baseFrac, halfWidthFrac]
-      var tierDefs = tiers === 3
-        ? [[0.00, 0.42, 0.18], [0.20, 0.70, 0.30], [0.45, 1.00, 0.42]]
-        : [[0.00, 0.55, 0.22], [0.25, 1.00, 0.38]];
+        var trunkH = treeH * 0.18;
+        var trunkW = Math.max(2, treeH * 0.08);
+        var coneH  = treeH - trunkH;
 
-      var coneTopY = H - treeH; // y-coordinate of the cone apex
+        // Tier definitions as fractions of coneH from the cone top:
+        //   [apexFrac, baseFrac, halfWidthFrac]
+        var tierDefs = tiers === 3
+          ? [[0.00, 0.42, 0.18], [0.20, 0.70, 0.30], [0.45, 1.00, 0.42]]
+          : [[0.00, 0.55, 0.22], [0.25, 1.00, 0.38]];
 
-      ctx.beginPath();
+        // Cone bottom sits at rowBaseline; apex is coneH above that.
+        var coneTopY = rowBaseline - coneH;
 
-      // Triangle tiers, drawn top to bottom
-      for (var td = 0; td < tierDefs.length; td++) {
-        var def = tierDefs[td];
-        var aY  = coneTopY + def[0] * coneH;
-        var bY  = coneTopY + def[1] * coneH;
-        var hw  = def[2] * coneH;
-        ctx.moveTo(tx, aY);
-        ctx.lineTo(tx - hw, bY);
-        ctx.lineTo(tx + hw, bY);
-        ctx.closePath();
+        ctx.beginPath();
+
+        // Triangle tiers, drawn top to bottom
+        for (var td = 0; td < tierDefs.length; td++) {
+          var def = tierDefs[td];
+          var aY  = coneTopY + def[0] * coneH;
+          var bY  = coneTopY + def[1] * coneH;
+          var hw  = def[2] * coneH;
+          ctx.moveTo(tx, aY);
+          ctx.lineTo(tx - hw, bY);
+          ctx.lineTo(tx + hw, bY);
+          ctx.closePath();
+        }
+
+        // Trunk hangs below baseline: clipped off-canvas for front row,
+        // hidden behind front-row foliage for back row.
+        ctx.rect(tx - trunkW / 2, rowBaseline, trunkW, trunkH);
+
+        ctx.fillStyle = treeColor;
+        ctx.fill();
       }
-
-      // Narrow trunk rectangle at the very bottom
-      ctx.rect(tx - trunkW / 2, H - trunkH, trunkW, trunkH);
-
-      ctx.fillStyle = treeColor;
-      ctx.fill();
     }
-
-    ctx.restore();
   };
 
   // ── 7. Initial render ─────────────────────────────────────────────────────────
