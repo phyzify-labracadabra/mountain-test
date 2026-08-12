@@ -230,26 +230,26 @@
     // All trees are generated into an array first (preserving RNG ordering), sorted
     // by depth ascending, then drawn back to front so nearer trees occlude farther ones.
     //
-    //   baseline     = H * (0.82 + depth * 0.18)   →  back: H*0.82, front: H
-    //   heightScale  = 0.50 + depth * 0.50          →  back: 50 %, front: 100 %
-    //   lightness    = 10 + depth * 2               →  back: 10 %, front: 12 %
+    //   baseline     = H * (0.82 + depth * 0.18)     →  back: H*0.82, front: H
+    //   heightScale  = 1.0  - depth * 0.50           →  back: 100 %, front: 50 %
+    //   lightness    = 8 + depth * 6 + rng*4 - 2    →  back: ~8 %, front: ~14 %
     //
     // Saturation (55–70 %) and tier count (2 or 3) remain randomised per tree.
     // Trees span -W to 2W for full triple-width coverage.
 
     var treeSpan      = 3 * W;
-    var approxSpacing = 10 + rng() * 8; // one tree roughly every 10–18 px
-    var treeCount     = Math.ceil(treeSpan / approxSpacing);
+    var approxSpacing = 7; // one tree roughly every 7 px (dense foreground coverage)
+    var treeCount     = Math.ceil(treeSpan / 7);
 
     // ── Generate all trees ───────────────────────────────────────────────────────
     var trees = [];
     for (var ti = 0; ti < treeCount; ti++) {
       var tx    = -W + (ti + 0.5) * (treeSpan / treeCount) + (rng() - 0.5) * approxSpacing * 0.8;
       var depth = rng();                                   // [0, 1]
-      var heightScale   = 0.50 + depth * 0.50;
+      var heightScale   = 1.0 - depth * 0.50;             // back=100%, front=50%
       var treeH = H * (0.10 + rng() * 0.12) * heightScale;
       var tiers = rng() < 0.4 ? 3 : 2;
-      var treeLightness  = 10 + depth * 2;                // 10–12 %
+      var treeLightness  = 8 + depth * 6 + (rng() - 0.5) * 4; // back: ~8%, front: ~14%
       var treeSaturation = 55 + rng() * 15;               // 55–70 %
       var baseline       = H * (0.82 + depth * 0.18);
       trees.push({
