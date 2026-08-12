@@ -230,8 +230,10 @@
     // All trees are generated into an array first (preserving RNG ordering), sorted
     // by depth ascending, then drawn back to front so nearer trees occlude farther ones.
     //
-    //   baseline     = H * (0.82 + depth * 0.18)     →  back: H*0.82, front: H
-    //   heightScale  = 1.0  - depth * 0.50           →  back: 100 %, front: 50 %
+    //   baseline     = H * 0.98  (fixed — all trees root at near the canvas bottom)
+    //   treeH        = H * (0.06 + rng()*0.02) * (1.0 + (1.0-depth)*0.8)
+    //                  → back (depth≈0): ~1.8× taller in pixels (perspective correct)
+    //                  → apex band:  roughly H*0.82–H*0.90 for all depths
     //   lightness    = 8 + depth * 6 + rng*4 - 2    →  back: ~8 %, front: ~14 %
     //
     // Saturation (55–70 %) and tier count (2 or 3) remain randomised per tree.
@@ -246,12 +248,11 @@
     for (var ti = 0; ti < treeCount; ti++) {
       var tx    = -2 * W + (ti + 0.5) * (treeSpan / treeCount) + (rng() - 0.5) * approxSpacing * 0.8;
       var depth = Math.pow(rng(), 0.25);                   // [0, 1], front-heavy power curve
-      var heightScale   = 1.0 - depth * 0.50;             // back=100%, front=50%
-      var treeH = H * (0.10 + rng() * 0.04) * heightScale;
+      var treeH = H * (0.06 + rng() * 0.02) * (1.0 + (1.0 - depth) * 0.8); // back trees taller (perspective)
       var tiers = rng() < 0.4 ? 3 : 2;
       var treeLightness  = 8 + depth * 6 + (rng() - 0.5) * 4; // back: ~8%, front: ~14%
       var treeSaturation = 55 + rng() * 15;               // 55–70 %
-      var baseline       = H * (0.82 + depth * 0.18);
+      var baseline       = H * 0.98;                      // fixed baseline — depth shift removed
       trees.push({
         tx: tx, depth: depth, treeH: treeH, tiers: tiers,
         treeLightness: treeLightness, treeSaturation: treeSaturation,
