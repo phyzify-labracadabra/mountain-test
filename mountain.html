@@ -238,14 +238,14 @@
     // Trees span -W to 2W for full triple-width coverage.
 
     var treeSpan      = 3 * W;
-    var approxSpacing = 7; // one tree roughly every 7 px (dense foreground coverage)
-    var treeCount     = Math.ceil(treeSpan / 7);
+    var approxSpacing = 5; // one tree roughly every 5 px (dense foreground coverage)
+    var treeCount     = Math.ceil(Math.ceil(treeSpan / 5) * 1.6);
 
     // ── Generate all trees ───────────────────────────────────────────────────────
     var trees = [];
     for (var ti = 0; ti < treeCount; ti++) {
       var tx    = -W + (ti + 0.5) * (treeSpan / treeCount) + (rng() - 0.5) * approxSpacing * 0.8;
-      var depth = rng();                                   // [0, 1]
+      var depth = Math.pow(rng(), 0.35);                   // [0, 1], front-heavy power curve
       var heightScale   = 1.0 - depth * 0.50;             // back=100%, front=50%
       var treeH = H * (0.10 + rng() * 0.12) * heightScale;
       var tiers = rng() < 0.4 ? 3 : 2;
