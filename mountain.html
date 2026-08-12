@@ -225,77 +225,87 @@
       ctx.restore();
     }
 
-    // — Foreground tree silhouette ————————————————————————————————————————————
-    // Two rows of conifer silhouettes drawn after all mountain layers.
-    // Back row baseline ≈ H*0.87, front row baseline = H (canvas bottom).
-    // The cone bottom sits AT the row baseline so the trunk hangs below —
-    // clipped off-canvas for the front row, hidden by front-row foliage for
-    // the back row — meaning only conical foliage is visible.
-    // Back row trees are 80 % the height of front-row trees.
-    // Per-tree lightness is 12–17 % for a subtler mottled canopy.
-    // No parallax translation: depth is conveyed by the two rows themselves.
-    // All back-row trees are generated first for deterministic RNG ordering.
+    // — Foreground tree silhouette (painter's algorithm, back to front) ——————————
+    // Each tree gets a continuous depth in [0,1]: 0=furthest back, 1=furthest front.
+    // All trees are generated into an array first (preserving RNG ordering), sorted
+    // by depth ascending, then drawn back to front so nearer trees occlude farther ones.
+    //
+    //   baseline     = H * (0.82 + depth * 0.18)   →  back: H*0.82, front: H
+    //   heightScale  = 0.50 + depth * 0.50          →  back: 50 %, front: 100 %
+    //   lightness    = 10 + depth * 2               →  back: 10 %, front: 12 %
+    //
+    // Saturation (55–70 %) and tier count (2 or 3) remain randomised per tree.
+    // Trees span -W to 2W for full triple-width coverage.
 
-    // Trees are generated across -W to 2W (triple width) for full coverage.
     var treeSpan      = 3 * W;
     var approxSpacing = 10 + rng() * 8; // one tree roughly every 10–18 px
     var treeCount     = Math.ceil(treeSpan / approxSpacing);
 
-    // Row definitions: back row first, then front row.
-    var treeRows = [
-      { baseline: H * 0.87, heightScale: 0.80 },
-      { baseline: H,        heightScale: 1.00 },
-    ];
+    // ── Generate all trees ───────────────────────────────────────────────────────
+    var trees = [];
+    for (var ti = 0; ti < treeCount; ti++) {
+      var tx    = -W + (ti + 0.5) * (treeSpan / treeCount) + (rng() - 0.5) * approxSpacing * 0.8;
+      var depth = rng();                                   // [0, 1]
+      var heightScale   = 0.50 + depth * 0.50;
+      var treeH = H * (0.10 + rng() * 0.12) * heightScale;
+      var tiers = rng() < 0.4 ? 3 : 2;
+      var treeLightness  = 10 + depth * 2;                // 10–12 %
+      var treeSaturation = 55 + rng() * 15;               // 55–70 %
+      var baseline       = H * (0.82 + depth * 0.18);
+      trees.push({
+        tx: tx, depth: depth, treeH: treeH, tiers: tiers,
+        treeLightness: treeLightness, treeSaturation: treeSaturation,
+        baseline: baseline,
+      });
+    }
 
-    for (var ri = 0; ri < treeRows.length; ri++) {
-      var rowBaseline    = treeRows[ri].baseline;
-      var rowHeightScale = treeRows[ri].heightScale;
+    // ── Sort back to front (ascending depth) ────────────────────────────────────
+    trees.sort(function (a, b) { return a.depth - b.depth; });
 
-      for (var ti = 0; ti < treeCount; ti++) {
-        // Evenly-spaced base position across [-W, 2W] with rng jitter
-        var tx    = -W + (ti + 0.5) * (treeSpan / treeCount) + (rng() - 0.5) * approxSpacing * 0.8;
-        var treeH = H * (0.10 + rng() * 0.12) * rowHeightScale;
-        var tiers = rng() < 0.4 ? 3 : 2;       // 2 or 3 tiers
+    // ── Draw back to front ───────────────────────────────────────────────────────
+    for (var ti = 0; ti < trees.length; ti++) {
+      var tree = trees[ti];
+      var tx             = tree.tx;
+      var treeH          = tree.treeH;
+      var tiers          = tree.tiers;
+      var treeLightness  = tree.treeLightness;
+      var treeSaturation = tree.treeSaturation;
+      var baseline       = tree.baseline;
 
-        // Per-tree randomised lightness (12–17 %) and saturation (55–70 %)
-        var treeLightness  = 12 + rng() * 5;   // 12–17 %
-        var treeSaturation = 55 + rng() * 15;  // 55–70 %
-        var treeColor = 'hsl(' + mountainHue + ', ' + Math.round(treeSaturation) + '%, ' + Math.round(treeLightness) + '%)';
+      var treeColor = 'hsl(' + mountainHue + ', ' + Math.round(treeSaturation) + '%, ' + Math.round(treeLightness) + '%)';
 
-        var trunkH = treeH * 0.18;
-        var trunkW = Math.max(2, treeH * 0.08);
-        var coneH  = treeH - trunkH;
+      var trunkH = treeH * 0.18;
+      var trunkW = Math.max(2, treeH * 0.08);
+      var coneH  = treeH - trunkH;
 
-        // Tier definitions as fractions of coneH from the cone top:
-        //   [apexFrac, baseFrac, halfWidthFrac]
-        var tierDefs = tiers === 3
-          ? [[0.00, 0.42, 0.18], [0.20, 0.70, 0.30], [0.45, 1.00, 0.42]]
-          : [[0.00, 0.55, 0.22], [0.25, 1.00, 0.38]];
+      // Tier definitions as fractions of coneH from the cone top:
+      //   [apexFrac, baseFrac, halfWidthFrac]
+      var tierDefs = tiers === 3
+        ? [[0.00, 0.42, 0.18], [0.20, 0.70, 0.30], [0.45, 1.00, 0.42]]
+        : [[0.00, 0.55, 0.22], [0.25, 1.00, 0.38]];
 
-        // Cone bottom sits at rowBaseline; apex is coneH above that.
-        var coneTopY = rowBaseline - coneH;
+      // Cone bottom sits at baseline; apex is coneH above that.
+      var coneTopY = baseline - coneH;
 
-        ctx.beginPath();
+      ctx.beginPath();
 
-        // Triangle tiers, drawn top to bottom
-        for (var td = 0; td < tierDefs.length; td++) {
-          var def = tierDefs[td];
-          var aY  = coneTopY + def[0] * coneH;
-          var bY  = coneTopY + def[1] * coneH;
-          var hw  = def[2] * coneH;
-          ctx.moveTo(tx, aY);
-          ctx.lineTo(tx - hw, bY);
-          ctx.lineTo(tx + hw, bY);
-          ctx.closePath();
-        }
-
-        // Trunk hangs below baseline: clipped off-canvas for front row,
-        // hidden behind front-row foliage for back row.
-        ctx.rect(tx - trunkW / 2, rowBaseline, trunkW, trunkH);
-
-        ctx.fillStyle = treeColor;
-        ctx.fill();
+      // Triangle tiers, drawn top to bottom
+      for (var td = 0; td < tierDefs.length; td++) {
+        var def = tierDefs[td];
+        var aY  = coneTopY + def[0] * coneH;
+        var bY  = coneTopY + def[1] * coneH;
+        var hw  = def[2] * coneH;
+        ctx.moveTo(tx, aY);
+        ctx.lineTo(tx - hw, bY);
+        ctx.lineTo(tx + hw, bY);
+        ctx.closePath();
       }
+
+      // Trunk hangs below baseline; naturally clips off-canvas or gets occluded.
+      ctx.rect(tx - trunkW / 2, baseline, trunkW, trunkH);
+
+      ctx.fillStyle = treeColor;
+      ctx.fill();
     }
   };
 
